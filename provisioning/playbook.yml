@@ -1,0 +1,104 @@
+---
+- hosts: main
+  sudo: yes
+  vars:
+    databases:
+      - name: playground
+        username: gis
+        password: gis
+      - name: playground2
+        username: gis
+        password: gis
+
+
+  tasks:
+    - name: add ubuntugis repo
+      apt_repository: repo='ppa:ubuntugis/ubuntugis-unstable'
+      sudo: yes
+
+    - name: install postgres and postgis packages
+      apt: pkg={{ item }} state=latest update_cache=yes cache_valid_time=3600
+      sudo: yes
+      with_items:
+        - postgresql
+        - postgresql-9.1-postgis-2.0
+        - postgresql-contrib
+        - python-psycopg2
+        # postgresql package requires correct locale when installing
+      environment:
+        LC_ALL: en_US.UTF-8
+
+    - name: ensure postgresql is running
+      sudo: yes
+      service: name=postgresql state=running enabled=yes
+
+    - name: set listen host
+      sudo: yes
+      lineinfile: destfile=/etc/postgresql/9.1/main/postgresql.conf
+                  regexp="^#listen_addresses = 'localhost'"
+                  line="listen_addresses = '*'"
+                  state=present
+
+    - name: open ports
+      sudo: yes
+      lineinfile: destfile=/etc/postgresql/9.1/main/pg_hba.conf
+                  regexp=''
+                  insertafter=EOF
+                  line='host    all             all             all                     md5'
+                  state=present
+
+    - name: create postgresql databases
+      sudo: yes
+      sudo_user: postgres
+      postgresql_db: name={{ item.name }} encoding='UTF-8'
+      register: create_databases
+      with_items: databases
+
+    - name: create postgresql users
+      sudo: yes
+      sudo_user: postgres
+      postgresql_user: name={{ item.username }}
+                       password={{ item.password }}
+                       db={{ item.name }}
+                       role_attr_flags=NOCREATEROLE,NOSUPERUSER,NOCREATEDB
+      with_items: databases
+
+    - name: create postgis extensions
+      sudo: yes
+      sudo_user: postgres
+      command: psql -d {{ item.name }} -c 'CREATE EXTENSION IF NOT EXISTS POSTGIS;'
+      with_items: databases
+      when: create_databases.changed
+
+    - name: grant geometry_columns
+      sudo: yes
+      sudo_user: postgres
+      command: psql -d {{ item.name }} -c 'GRANT ALL ON TABLE geometry_columns TO {{item.username}}';
+      with_items: databases
+
+    - name: grant geography_columns
+      sudo: yes
+      sudo_user: postgres
+      command: psql -d {{ item.name }} -c 'GRANT ALL ON TABLE geography_columns TO {{item.username}}';
+      with_items: databases
+
+    - name: grant raster_columns
+      sudo: yes
+      sudo_user: postgres
+      command: psql -d {{ item.name }} -c 'GRANT ALL ON TABLE raster_columns TO {{item.username}}';
+      with_items: databases
+
+    - name: grant raster_overviews
+      sudo: yes
+      sudo_user: postgres
+      command: psql -d {{ item.name }} -c 'GRANT ALL ON TABLE raster_overviews TO {{item.username}}';
+      with_items: databases
+
+    - name: grant spatial_ref_sys
+      sudo: yes
+      sudo_user: postgres
+      command: psql -d {{ item.name }} -c 'GRANT ALL ON TABLE spatial_ref_sys TO {{item.username}}';
+      with_items: databases
+
+    - name: restart postgres
+      service: name=postgresql state=restarted
