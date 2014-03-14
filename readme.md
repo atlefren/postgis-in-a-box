@@ -76,3 +76,8 @@ To start the virtualmachine:
 To stop it:
 
     vagrant halt
+
+
+Thanks
+------
+Thanks to Martin Polden for examples/help and howto
